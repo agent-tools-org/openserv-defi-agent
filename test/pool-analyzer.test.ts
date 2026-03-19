@@ -95,4 +95,29 @@ describe('pool-analyzer', () => {
     const result = await analyzePool('0xBigPool', client)
     expect(parseFloat(result.volume24hEstimate)).toBeGreaterThanOrEqual(0)
   })
+
+  it('propagates error for invalid pool address', async () => {
+    const client = {
+      readContract: vi.fn().mockRejectedValue(new Error('execution reverted'))
+    } as unknown as ReturnType<typeof createViemClient>
+
+    await expect(analyzePool('0xInvalidAddress', client)).rejects.toThrow('execution reverted')
+  })
+
+  it('handles pool with zero liquidity', async () => {
+    const client = makeMockClient({ liquidity: BigInt(0) })
+    const result = await analyzePool('0xEmptyPool', client)
+    expect(result.liquidity).toBe('0')
+    expect(parseFloat(result.volume24hEstimate)).toBe(0)
+  })
+
+  it('computes accurate price for known sqrtPriceX96 value', () => {
+    // sqrtPriceX96 = 2^96 * sqrt(2000) for a WETH/USDC-like pair
+    // sqrt(2000) ≈ 44.72, so sqrtPriceX96 ≈ 44.72 * 2^96
+    const sqrtOf2000 = Math.sqrt(2000)
+    const sqrtPriceX96 = BigInt(Math.floor(sqrtOf2000 * 2 ** 96))
+    // With same decimals, price = (sqrtPriceX96 / 2^96)^2 ≈ 2000
+    const price = computePrice(sqrtPriceX96, 18, 18)
+    expect(Number(price)).toBeCloseTo(2000, -1) // within ~10
+  })
 })

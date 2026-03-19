@@ -82,4 +82,30 @@ describe('token-scanner', () => {
     expect(scanTokenInputSchema.safeParse({ address: '0xabc' }).success).toBe(true)
     expect(scanTokenInputSchema.safeParse({}).success).toBe(false)
   })
+
+  it('detects proxy via second storage slot (beacon)', async () => {
+    const client = makeMockTokenClient()
+    // Override getStorageAt to return non-zero only on second call (beacon slot)
+    let callCount = 0
+    client.getStorageAt = vi.fn().mockImplementation(() => {
+      callCount++
+      if (callCount === 1) return Promise.resolve('0x0000000000000000000000000000000000000000000000000000000000000000')
+      return Promise.resolve('0x000000000000000000000000abcdefabcdefabcdefabcdefabcdefabcdefabcd')
+    })
+    const result = await scanToken('0xBeaconProxy', client)
+    expect(result.patterns.isProxy).toBe(true)
+  })
+
+  it('detects pausable token when pause selector succeeds', async () => {
+    const client = makeMockTokenClient({ callSuccess: true })
+    const result = await scanToken('0xPausable', client)
+    expect(result.patterns.isPausable).toBe(true)
+  })
+
+  it('handles zero-supply token correctly', async () => {
+    const client = makeMockTokenClient({ totalSupply: BigInt(0), decimals: 18 })
+    const result = await scanToken('0xZeroSupply', client)
+    expect(result.totalSupply).toBe('0')
+    expect(result.totalSupplyFormatted).toBe('0')
+  })
 })

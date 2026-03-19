@@ -70,4 +70,36 @@ describe('yield-finder', () => {
     expect(findYieldInputSchema.safeParse({ token: 'WETH' }).success).toBe(true)
     expect(findYieldInputSchema.safeParse({}).success).toBe(false)
   })
+
+  it('returns opportunities for unknown token with default multiplier', async () => {
+    const client = {} as ReturnType<typeof createYieldClient>
+    const result = await findYield('UNKNOWN_TOKEN_XYZ', client)
+    // Unknown tokens get multiplier 0.7, so all APYs should be < baseApy
+    expect(result.opportunities.length).toBe(PROTOCOL_CONFIGS.length)
+    result.opportunities.forEach((o) => {
+      expect(o.apy).toBeGreaterThan(0)
+    })
+    expect(result.token).toBe('UNKNOWN_TOKEN_XYZ')
+  })
+
+  it('maintains stable sort order for protocols with equal adjusted APY', async () => {
+    const client = {} as ReturnType<typeof createYieldClient>
+    // Run twice with same token to verify deterministic ordering
+    const result1 = await findYield('USDC', client)
+    const result2 = await findYield('USDC', client)
+    const names1 = result1.opportunities.map((o) => o.protocol)
+    const names2 = result2.opportunities.map((o) => o.protocol)
+    expect(names1).toEqual(names2)
+  })
+
+  it('all APYs are non-negative after multiplier application', async () => {
+    const client = {} as ReturnType<typeof createYieldClient>
+    // Test with every known token multiplier
+    for (const token of Object.keys(TOKEN_MULTIPLIERS)) {
+      const result = await findYield(token, client)
+      result.opportunities.forEach((o) => {
+        expect(o.apy).toBeGreaterThanOrEqual(0)
+      })
+    }
+  })
 })

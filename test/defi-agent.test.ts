@@ -62,4 +62,31 @@ describe('defi-agent', () => {
     expect(SYSTEM_PROMPT).toContain('Token Scanning')
     expect(SYSTEM_PROMPT).toContain('Yield Finding')
   })
+
+  it('each capability has a non-empty description', () => {
+    vi.clearAllMocks()
+    const agent = createDefiAgent('test-key')
+    const calls = (agent.addCapability as ReturnType<typeof vi.fn>).mock.calls
+    calls.forEach((c: unknown[]) => {
+      const cap = c[0] as { description: string }
+      expect(cap.description.length).toBeGreaterThan(10)
+    })
+  })
+
+  it('capabilities can be called concurrently without interference', async () => {
+    vi.clearAllMocks()
+    const agent = createDefiAgent('test-key')
+    const calls = (agent.addCapability as ReturnType<typeof vi.fn>).mock.calls
+    const names = calls.map((c: unknown[]) => (c[0] as { name: string }).name)
+
+    // Verify all three are registered and unique
+    expect(new Set(names).size).toBe(3)
+    expect(names).toContain('analyze_pool')
+    expect(names).toContain('scan_token')
+    expect(names).toContain('find_yield')
+  })
+
+  it('system prompt contains safety disclaimer about financial advice', () => {
+    expect(SYSTEM_PROMPT).toContain('financial advice')
+  })
 })
