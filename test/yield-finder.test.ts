@@ -15,7 +15,9 @@ import {
   findYieldInputSchema,
   resolveToken,
   PROTOCOL_CONFIGS,
-  TOKEN_MULTIPLIERS
+  TOKEN_MULTIPLIERS,
+  parseDefillamaPoolsResponse,
+  formatTvl
 } from '../src/capabilities/yield-finder.js'
 
 describe('yield-finder', () => {
@@ -29,7 +31,7 @@ describe('yield-finder', () => {
     global.fetch = originalFetch
   })
 
-  it('returns live data with source "live" when DefiLlama fetch succeeds', async () => {
+  it('returns live data with dataSource "live" when DefiLlama fetch succeeds', async () => {
     global.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -43,22 +45,24 @@ describe('yield-finder', () => {
     const client = {} as ReturnType<typeof createYieldClient>
     const result = await findYield('USDC', client)
 
-    expect(result.source).toBe('live')
+    expect(result.dataSource).toBe('live')
     expect(result.opportunities.length).toBeGreaterThan(0)
+    expect(result.opportunities.every((o) => o.dataSource === 'live')).toBe(true)
     expect(global.fetch).toHaveBeenCalledWith('https://yields.llama.fi/pools')
   })
 
-  it('returns demo data with source "demo" when DefiLlama fetch fails', async () => {
+  it('returns demo data with dataSource "cached" when DefiLlama fetch fails', async () => {
     global.fetch = vi.fn().mockRejectedValueOnce(new Error('Network error'))
 
     const client = {} as ReturnType<typeof createYieldClient>
     const result = await findYield('USDC', client)
 
-    expect(result.source).toBe('demo')
+    expect(result.dataSource).toBe('cached')
     expect(result.opportunities.length).toBe(PROTOCOL_CONFIGS.length)
+    expect(result.opportunities.every((o) => o.dataSource === 'cached')).toBe(true)
   })
 
-  it('returns demo data with source "demo" when DefiLlama returns no matching pools', async () => {
+  it('returns demo data with dataSource "cached" when DefiLlama returns no matching pools', async () => {
     global.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => ({ data: [] })
@@ -67,7 +71,8 @@ describe('yield-finder', () => {
     const client = {} as ReturnType<typeof createYieldClient>
     const result = await findYield('USDC', client)
 
-    expect(result.source).toBe('demo')
+    expect(result.dataSource).toBe('cached')
+    expect(result.opportunities.every((o) => o.dataSource === 'cached')).toBe(true)
   })
 
   it('returns opportunities sorted by APY descending', async () => {
@@ -167,5 +172,35 @@ describe('yield-finder', () => {
         expect(o.apy).toBeGreaterThanOrEqual(0)
       })
     }
+  })
+
+  it('falls back to cached when DefiLlama payload parsing fails', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ chain: 'Base', project: 'aave-v3', symbol: 'USDC', apy: '5.2' }] })
+    })
+
+    const client = {} as ReturnType<typeof createYieldClient>
+    const result = await findYield('USDC', client)
+    expect(result.dataSource).toBe('cached')
+  })
+
+  it('parseDefillamaPoolsResponse accepts a valid payload', () => {
+    const parsed = parseDefillamaPoolsResponse({
+      data: [{ chain: 'Base', project: 'aave-v3', symbol: 'USDC', apy: 5.2, tvlUsd: 123 }]
+    })
+    expect(parsed.data.length).toBe(1)
+    expect(parsed.data[0].project).toBe('aave-v3')
+  })
+
+  it('parseDefillamaPoolsResponse throws on invalid payload', () => {
+    expect(() => parseDefillamaPoolsResponse({ data: [{ chain: 'Base' }] })).toThrow()
+  })
+
+  it('formatTvl formats magnitudes consistently', () => {
+    expect(formatTvl(999)).toBe('$999')
+    expect(formatTvl(12_345)).toBe('$12.3K')
+    expect(formatTvl(1_234_567)).toBe('$1.2M')
+    expect(formatTvl(2_345_678_901)).toBe('$2.35B')
   })
 })

@@ -35,8 +35,11 @@ const PROXY_SLOTS = [
   '0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50'  // EIP-1967 beacon
 ] as const
 
-const MINTABLE_SELECTORS = ['0x40c10f19', '0xa0712d68'] as const // mint(address,uint256), mint(uint256)
-const PAUSABLE_SELECTORS = ['0x8456cb59', '0x3f4ba83a'] as const // pause(), unpause()
+const MINTABLE_CALLDATA = [
+  '0x40c10f1900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000',
+  '0xa0712d680000000000000000000000000000000000000000000000000000000000000000'
+] as const // mint(address,uint256), mint(uint256) withdummy args
+const PAUSABLE_CALLDATA = ['0x8456cb59', '0x3f4ba83a'] as const // pause(), unpause()
 
 export function createTokenClient(rpcUrl?: string) {
   return createPublicClient({
@@ -78,8 +81,8 @@ async function detectPatterns(
 ): Promise<TokenPatterns> {
   const [isProxy, isMintable, isPausable] = await Promise.all([
     checkProxy(client, address),
-    checkSelectors(client, address, MINTABLE_SELECTORS),
-    checkSelectors(client, address, PAUSABLE_SELECTORS)
+    checkSelectors(client, address, MINTABLE_CALLDATA),
+    checkSelectors(client, address, PAUSABLE_CALLDATA)
   ])
   return { isProxy, isMintable, isPausable }
 }
@@ -104,11 +107,11 @@ async function checkProxy(
 async function checkSelectors(
   client: ReturnType<typeof createTokenClient>,
   address: Address,
-  selectors: readonly string[]
+  calldataList: readonly string[]
 ): Promise<boolean> {
-  for (const sel of selectors) {
+  for (const calldata of calldataList) {
     try {
-      await client.call({ to: address, data: sel as `0x${string}` })
+      await client.call({ to: address, data: calldata as `0x${string}` })
       return true
     } catch {
       continue

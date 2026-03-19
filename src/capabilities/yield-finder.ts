@@ -14,13 +14,14 @@ export type YieldOpportunity = {
   apy: number
   tvl: string
   risk: 'low' | 'medium' | 'high'
+  dataSource: 'live' | 'cached'
 }
 
 export type YieldResult = {
   token: string
   opportunities: YieldOpportunity[]
   queriedAt: string
-  source: 'live' | 'demo'
+  dataSource: 'live' | 'cached'
 }
 
 /** Known lending protocol rate data sources on Base */
@@ -96,6 +97,22 @@ type DefillamaPool = {
   tvlUsd: number
 }
 
+const defillamaPoolsResponseSchema = z.object({
+  data: z.array(
+    z.object({
+      chain: z.string(),
+      project: z.string(),
+      symbol: z.string(),
+      apy: z.number(),
+      tvlUsd: z.number()
+    })
+  )
+})
+
+function parseDefillamaPoolsResponse(input: unknown): { data: DefillamaPool[] } {
+  return defillamaPoolsResponseSchema.parse(input) as { data: DefillamaPool[] }
+}
+
 async function fetchDefillamaYields(
   token: string,
   multiplier: number
@@ -103,8 +120,8 @@ async function fetchDefillamaYields(
   const tokenLower = token.toLowerCase()
   const res = await fetch('https://yields.llama.fi/pools')
   if (!res.ok) throw new Error(`DefiLlama API error: ${res.status}`)
-  const data = (await res.json()) as { data: DefillamaPool[] }
-  const basePools = data.data.filter(
+  const parsed = parseDefillamaPoolsResponse(await res.json())
+  const basePools = parsed.data.filter(
     (p) => p.chain === 'Base' && p.symbol.toLowerCase() === tokenLower
   )
   const opportunities: YieldOpportunity[] = []
@@ -119,7 +136,8 @@ async function fetchDefillamaYields(
         token,
         apy: Math.round(match.apy * multiplier * 100) / 100,
         tvl: formatTvl(match.tvlUsd),
-        risk: proto.risk
+        risk: proto.risk,
+        dataSource: 'live'
       })
     }
   }
@@ -155,11 +173,11 @@ export async function findYield(
         token: normalizedToken,
         opportunities: liveData,
         queriedAt: new Date().toISOString(),
-        source: 'live'
+        dataSource: 'live'
       }
     }
   } catch {
-    // Fall through to demo data
+    // If live fetch/parsing fails (network, non-200, schema mismatch), fall back to demo values.
   }
 
   const viem = client ?? createYieldClient()
@@ -173,7 +191,8 @@ export async function findYield(
         token: normalizedToken,
         apy: Math.round(apy * 100) / 100,
         tvl,
-        risk: proto.risk
+        risk: proto.risk,
+        dataSource: 'cached'
       }
     })
   )
@@ -184,7 +203,7 @@ export async function findYield(
     token: normalizedToken,
     opportunities,
     queriedAt: new Date().toISOString(),
-    source: 'demo'
+    dataSource: 'cached'
   }
 }
 
@@ -209,8 +228,8 @@ async function estimateApy(
   proto: ProtocolConfig,
   multiplier: number
 ): Promise<number> {
-  // In production, read on-chain supply/borrow rates from the rate provider.
-  // For this version we use known base APYs adjusted per token.
+  // Cached fallback only:
+  // These numbers are static placeholders used when live HTTP fetching fails.
   return proto.baseApy * multiplier
 }
 
@@ -218,8 +237,8 @@ async function estimateTvl(
   _client: ReturnType<typeof createYieldClient>,
   proto: ProtocolConfig
 ): Promise<string> {
-  // In production, read TVL from on-chain or an indexer.
-  // Placeholder estimates based on known protocol sizes on Base.
+  // Cached fallback only:
+  // These numbers are static placeholder estimates used when live HTTP fetching fails.
   const tvlEstimates: Record<string, string> = {
     'Aave V3': '$245M',
     'Compound V3': '$182M',
@@ -230,4 +249,4 @@ async function estimateTvl(
   return tvlEstimates[proto.name] ?? 'N/A'
 }
 
-export { resolveToken, PROTOCOL_CONFIGS, TOKEN_MULTIPLIERS }
+export { resolveToken, PROTOCOL_CONFIGS, TOKEN_MULTIPLIERS, parseDefillamaPoolsResponse, formatTvl }

@@ -102,6 +102,12 @@ describe('token-scanner', () => {
     expect(result.patterns.isPausable).toBe(true)
   })
 
+  it('detects mintable token when mint selector succeeds', async () => {
+    const client = makeMockTokenClient({ callSuccess: true })
+    const result = await scanToken('0xMintable', client)
+    expect(result.patterns.isMintable).toBe(true)
+  })
+
   it('handles zero-supply token correctly', async () => {
     const client = makeMockTokenClient({ totalSupply: BigInt(0), decimals: 18 })
     const result = await scanToken('0xZeroSupply', client)

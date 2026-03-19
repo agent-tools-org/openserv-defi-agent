@@ -91,10 +91,26 @@ export async function analyzePool(
 }
 
 export function computePrice(sqrtPriceX96: bigint, dec0: number, dec1: number): string {
-  const num = Number(sqrtPriceX96) / 2 ** 96
-  const rawPrice = num * num
-  const adjusted = rawPrice * 10 ** (dec0 - dec1)
-  return adjusted.toPrecision(8)
+  const Q96 = 2n ** 96n
+  const SCALE = 10n ** 18n
+
+  // Calculate raw price scaled: (sqrtPriceX96^2 * SCALE) / Q96^2
+  const numerator = sqrtPriceX96 * sqrtPriceX96 * SCALE
+  const denominator = Q96 * Q96
+  let priceScaled = numerator / denominator
+
+  // Apply decimal adjustment
+  const decimalDiff = dec0 - dec1
+  if (decimalDiff >= 0) {
+    priceScaled = priceScaled * (10n ** BigInt(decimalDiff))
+  } else {
+    priceScaled = priceScaled / (10n ** BigInt(-decimalDiff))
+  }
+
+  // Convert to number for formatting
+  const price = Number(priceScaled) / 1e18
+
+  return price.toPrecision(8)
 }
 
 function estimateVolume(liquidity: bigint, fee: number): string {
