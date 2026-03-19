@@ -7,18 +7,20 @@
     "build": "tsc",
     "start": "tsx src/index.ts",
     "demo": "tsx scripts/demo.ts",
+    "compile": "tsx src/compile.ts",
     "test": "vitest run"
   },
   "dependencies": {
     "@openserv-labs/sdk": "^2.4.1",
     "dotenv": "^16.4.7",
+    "solc": "^0.8.34",
+    "tsx": "^4.19.0",
     "viem": "^2.23.0",
-    "zod": "^3.24.0",
-    "tsx": "^4.19.0"
+    "zod": "^3.24.0"
   },
   "devDependencies": {
-    "vitest": "^3.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   },
   "engines": {
     "node": ">=18"
