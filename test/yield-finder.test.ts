@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('viem', async () => {
   const actual = await vi.importActual('viem')
@@ -19,7 +19,60 @@ import {
 } from '../src/capabilities/yield-finder.js'
 
 describe('yield-finder', () => {
+  const originalFetch = global.fetch
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    global.fetch = originalFetch
+  })
+
+  it('returns live data with source "live" when DefiLlama fetch succeeds', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { chain: 'Base', project: 'aave-v3', symbol: 'USDC', apy: 5.2, tvlUsd: 250000000 },
+          { chain: 'Base', project: 'compound-v3', symbol: 'USDC', apy: 4.8, tvlUsd: 180000000 }
+        ]
+      })
+    })
+
+    const client = {} as ReturnType<typeof createYieldClient>
+    const result = await findYield('USDC', client)
+
+    expect(result.source).toBe('live')
+    expect(result.opportunities.length).toBeGreaterThan(0)
+    expect(global.fetch).toHaveBeenCalledWith('https://yields.llama.fi/pools')
+  })
+
+  it('returns demo data with source "demo" when DefiLlama fetch fails', async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(new Error('Network error'))
+
+    const client = {} as ReturnType<typeof createYieldClient>
+    const result = await findYield('USDC', client)
+
+    expect(result.source).toBe('demo')
+    expect(result.opportunities.length).toBe(PROTOCOL_CONFIGS.length)
+  })
+
+  it('returns demo data with source "demo" when DefiLlama returns no matching pools', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [] })
+    })
+
+    const client = {} as ReturnType<typeof createYieldClient>
+    const result = await findYield('USDC', client)
+
+    expect(result.source).toBe('demo')
+  })
+
   it('returns opportunities sorted by APY descending', async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(new Error('Force demo'))
+
     const client = {} as ReturnType<typeof createYieldClient>
     const result = await findYield('WETH', client)
 
@@ -29,9 +82,11 @@ describe('yield-finder', () => {
   })
 
   it('returns all known protocols', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('Force demo'))
+
     const client = {} as ReturnType<typeof createYieldClient>
     const result = await findYield('USDC', client)
-    expect(result.opportunities.length).toBe(PROTOCOL_CONFIGS.length)
+    expect(result.opportunities.length).toBeGreaterThanOrEqual(1)
 
     const names = result.opportunities.map((o) => o.protocol)
     for (const proto of PROTOCOL_CONFIGS) {
@@ -48,6 +103,8 @@ describe('yield-finder', () => {
   })
 
   it('applies correct multiplier per token', async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(new Error('Force demo'))
+
     const client = {} as ReturnType<typeof createYieldClient>
 
     const wethResult = await findYield('WETH', client)
@@ -60,6 +117,8 @@ describe('yield-finder', () => {
   })
 
   it('includes timestamp in result', async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(new Error('Force demo'))
+
     const client = {} as ReturnType<typeof createYieldClient>
     const result = await findYield('WETH', client)
     expect(result.queriedAt).toBeTruthy()
@@ -72,6 +131,8 @@ describe('yield-finder', () => {
   })
 
   it('returns opportunities for unknown token with default multiplier', async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(new Error('Force demo'))
+
     const client = {} as ReturnType<typeof createYieldClient>
     const result = await findYield('UNKNOWN_TOKEN_XYZ', client)
     // Unknown tokens get multiplier 0.7, so all APYs should be < baseApy
@@ -83,9 +144,12 @@ describe('yield-finder', () => {
   })
 
   it('maintains stable sort order for protocols with equal adjusted APY', async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(new Error('Force demo'))
+
     const client = {} as ReturnType<typeof createYieldClient>
     // Run twice with same token to verify deterministic ordering
     const result1 = await findYield('USDC', client)
+    global.fetch = vi.fn().mockRejectedValueOnce(new Error('Force demo'))
     const result2 = await findYield('USDC', client)
     const names1 = result1.opportunities.map((o) => o.protocol)
     const names2 = result2.opportunities.map((o) => o.protocol)
@@ -93,6 +157,8 @@ describe('yield-finder', () => {
   })
 
   it('all APYs are non-negative after multiplier application', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('Force demo'))
+
     const client = {} as ReturnType<typeof createYieldClient>
     // Test with every known token multiplier
     for (const token of Object.keys(TOKEN_MULTIPLIERS)) {

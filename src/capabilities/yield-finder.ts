@@ -20,6 +20,7 @@ export type YieldResult = {
   token: string
   opportunities: YieldOpportunity[]
   queriedAt: string
+  source: 'live' | 'demo'
 }
 
 /** Known lending protocol rate data sources on Base */
@@ -79,6 +80,59 @@ const TOKEN_MULTIPLIERS: Record<string, number> = {
   wstETH: 1.15
 }
 
+const DEFILLAMA_PROTOCOL_MAP: Record<string, string> = {
+  'Aave V3': 'aave-v3',
+  'Compound V3': 'compound-v3',
+  Moonwell: 'moonwell',
+  Seamless: 'seamless-protocol',
+  'Extra Finance': 'extra-finance'
+}
+
+type DefillamaPool = {
+  chain: string
+  project: string
+  symbol: string
+  apy: number
+  tvlUsd: number
+}
+
+async function fetchDefillamaYields(
+  token: string,
+  multiplier: number
+): Promise<YieldOpportunity[] | null> {
+  const tokenLower = token.toLowerCase()
+  const res = await fetch('https://yields.llama.fi/pools')
+  if (!res.ok) throw new Error(`DefiLlama API error: ${res.status}`)
+  const data = (await res.json()) as { data: DefillamaPool[] }
+  const basePools = data.data.filter(
+    (p) => p.chain === 'Base' && p.symbol.toLowerCase() === tokenLower
+  )
+  const opportunities: YieldOpportunity[] = []
+  for (const proto of PROTOCOL_CONFIGS) {
+    const llamaProject = DEFILLAMA_PROTOCOL_MAP[proto.name]
+    if (!llamaProject) continue
+    const match = basePools.find((p) => p.project === llamaProject)
+    if (match && match.apy > 0) {
+      opportunities.push({
+        protocol: proto.name,
+        pool: proto.pool,
+        token,
+        apy: Math.round(match.apy * multiplier * 100) / 100,
+        tvl: formatTvl(match.tvlUsd),
+        risk: proto.risk
+      })
+    }
+  }
+  return opportunities.length > 0 ? opportunities : null
+}
+
+function formatTvl(tvlUsd: number): string {
+  if (tvlUsd >= 1e9) return `$${(tvlUsd / 1e9).toFixed(2)}B`
+  if (tvlUsd >= 1e6) return `$${(tvlUsd / 1e6).toFixed(1)}M`
+  if (tvlUsd >= 1e3) return `$${(tvlUsd / 1e3).toFixed(1)}K`
+  return `$${tvlUsd.toFixed(0)}`
+}
+
 export function createYieldClient(rpcUrl?: string) {
   return createPublicClient({
     chain: base,
@@ -90,10 +144,25 @@ export async function findYield(
   token: string,
   client?: ReturnType<typeof createYieldClient>
 ): Promise<YieldResult> {
-  const viem = client ?? createYieldClient()
   const normalizedToken = resolveToken(token)
   const multiplier = TOKEN_MULTIPLIERS[normalizedToken] ?? 0.7
 
+  try {
+    const liveData = await fetchDefillamaYields(normalizedToken, multiplier)
+    if (liveData && liveData.length > 0) {
+      liveData.sort((a, b) => b.apy - a.apy)
+      return {
+        token: normalizedToken,
+        opportunities: liveData,
+        queriedAt: new Date().toISOString(),
+        source: 'live'
+      }
+    }
+  } catch {
+    // Fall through to demo data
+  }
+
+  const viem = client ?? createYieldClient()
   const opportunities: YieldOpportunity[] = await Promise.all(
     PROTOCOL_CONFIGS.map(async (proto) => {
       const apy = await estimateApy(viem, proto, multiplier)
@@ -114,7 +183,8 @@ export async function findYield(
   return {
     token: normalizedToken,
     opportunities,
-    queriedAt: new Date().toISOString()
+    queriedAt: new Date().toISOString(),
+    source: 'demo'
   }
 }
 
